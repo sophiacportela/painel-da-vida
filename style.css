@@ -127,7 +127,7 @@ h1 { font-size: 24px; margin: 0 0 4px; }
 .inline-label.full { display: flex; flex-direction: column; gap: 4px; margin-top: 10px; }
 .inline-label input { display: block; margin-top: 4px; }
 
-input[type="text"], input:not([type]), input[type="number"], textarea, input[list] {
+input[type="text"], input:not([type]), input[type="number"], input[type="email"], input[type="password"], textarea, input[list] {
   font-family: inherit;
   font-size: 14px;
   padding: 8px 10px;
@@ -207,6 +207,7 @@ textarea { min-height: 70px; resize: vertical; }
 
 .login-box { max-width: 420px; margin: 60px auto; text-align: left; }
 .login-box .add-row { margin-top: 16px; }
+.login-box .add-row input { margin-bottom: 8px; }
 
 .nav-item.logout {
   margin-top: 16px;

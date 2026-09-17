@@ -975,32 +975,51 @@ document.addEventListener("click", (ev) => {
   }
 });
 
-// ---------- login ----------
+// ---------- login (e-mail + senha) ----------
 function renderLogin(msg) {
   document.getElementById("nav").innerHTML = "";
   document.getElementById("content").innerHTML = `
     <div class="login-box">
       <h1>Painel da Vida</h1>
-      <p class="sub">Entra com seu e-mail. Você recebe um link — clica nele e volta pra cá logada.</p>
-      <div class="add-row">
-        <input id="loginEmail" type="email" placeholder="seu@email.com" style="flex:1">
-        <button id="btnLogin">Enviar link</button>
+      <p class="sub">Primeira vez: cria sua conta. Depois disso, é só entrar com e-mail e senha.</p>
+      <div class="add-row" style="flex-direction:column;align-items:stretch">
+        <input id="loginEmail" type="email" placeholder="seu@email.com">
+        <input id="loginSenha" type="password" placeholder="senha (mínimo 6 caracteres)">
+        <div style="display:flex;gap:8px">
+          <button id="btnEntrar" style="flex:1">Entrar</button>
+          <button id="btnCriarConta" style="flex:1;background:#334155">Criar conta</button>
+        </div>
       </div>
       ${msg ? `<p class="muted">${msg}</p>` : ""}
     </div>
   `;
-  document.getElementById("btnLogin").addEventListener("click", async () => {
-    const email = document.getElementById("loginEmail").value.trim();
-    if (!email) return;
-    setSyncStatus("enviando link...");
-    const { error } = await sb.auth.signInWithOtp({
-      email,
-      options: { emailRedirectTo: window.location.href },
-    });
+
+  const getCreds = () => ({
+    email: document.getElementById("loginEmail").value.trim(),
+    password: document.getElementById("loginSenha").value,
+  });
+
+  document.getElementById("btnEntrar").addEventListener("click", async () => {
+    const { email, password } = getCreds();
+    if (!email || !password) return renderLogin("Preenche e-mail e senha.");
+    setSyncStatus("entrando...");
+    const { error } = await sb.auth.signInWithPassword({ email, password });
+    if (error) renderLogin(`Erro: ${error.message}`);
+    // sucesso dispara SIGNED_IN via onAuthStateChange, que já leva pro app
+  });
+
+  document.getElementById("btnCriarConta").addEventListener("click", async () => {
+    const { email, password } = getCreds();
+    if (!email || !password) return renderLogin("Preenche e-mail e senha.");
+    if (password.length < 6) return renderLogin("Senha precisa de pelo menos 6 caracteres.");
+    setSyncStatus("criando conta...");
+    const { data, error } = await sb.auth.signUp({ email, password });
     if (error) {
       renderLogin(`Erro: ${error.message}`);
+    } else if (data.session) {
+      // confirmação de e-mail desligada: já entra direto
     } else {
-      renderLogin(`Link enviado pra ${email} — confere sua caixa de entrada (e o spam).`);
+      renderLogin("Conta criada! Confirma seu e-mail (se a confirmação estiver ligada no Supabase) e depois clica em Entrar.");
     }
   });
 }
