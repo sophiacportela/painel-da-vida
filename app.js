@@ -11,12 +11,12 @@ const PILARES = [
 ];
 
 const STORAGE_KEY = "painelDaVidaState_v1";
-const ROW_ID = "sophia"; // linha única no Supabase (app é single-user)
 
 let state = null;
 let sb = null;
 let saveTimer = null;
 let activeTab = "visao";
+let currentUser = null; // { id, email } — vem do login
 
 // ---------- utilidades de data ----------
 function todayISO() {
@@ -120,16 +120,20 @@ function safeLocalSet(key, value) {
   }
 }
 
+function localKey() {
+  return currentUser ? `${STORAGE_KEY}:${currentUser.id}` : STORAGE_KEY;
+}
+
 async function loadState() {
-  const local = safeLocalGet(STORAGE_KEY);
+  const local = safeLocalGet(localKey());
   let localState = local ? JSON.parse(local) : null;
 
-  if (sb) {
+  if (sb && currentUser) {
     try {
       const { data, error } = await sb
         .from("painel_estado")
         .select("data")
-        .eq("id", ROW_ID)
+        .eq("user_id", currentUser.id)
         .maybeSingle();
       if (!error && data && data.data) {
         localState = data.data;
@@ -143,17 +147,17 @@ async function loadState() {
 }
 
 function saveState() {
-  safeLocalSet(STORAGE_KEY, JSON.stringify(state));
+  safeLocalSet(localKey(), JSON.stringify(state));
   clearTimeout(saveTimer);
   saveTimer = setTimeout(async () => {
-    if (!sb) return;
+    if (!sb || !currentUser) return;
     try {
       await sb.from("painel_estado").upsert({
-        id: ROW_ID,
+        user_id: currentUser.id,
         data: state,
         updated_at: new Date().toISOString(),
       });
-      setSyncStatus("sincronizado");
+      setSyncStatus(`sincronizado — ${currentUser.email}`);
     } catch (e) {
       console.warn("Falha ao sincronizar", e);
       setSyncStatus("offline");
@@ -971,13 +975,84 @@ document.addEventListener("click", (ev) => {
   }
 });
 
+// ---------- login ----------
+function renderLogin(msg) {
+  document.getElementById("nav").innerHTML = "";
+  document.getElementById("content").innerHTML = `
+    <div class="login-box">
+      <h1>Painel da Vida</h1>
+      <p class="sub">Entra com seu e-mail. Você recebe um link — clica nele e volta pra cá logada.</p>
+      <div class="add-row">
+        <input id="loginEmail" type="email" placeholder="seu@email.com" style="flex:1">
+        <button id="btnLogin">Enviar link</button>
+      </div>
+      ${msg ? `<p class="muted">${msg}</p>` : ""}
+    </div>
+  `;
+  document.getElementById("btnLogin").addEventListener("click", async () => {
+    const email = document.getElementById("loginEmail").value.trim();
+    if (!email) return;
+    setSyncStatus("enviando link...");
+    const { error } = await sb.auth.signInWithOtp({
+      email,
+      options: { emailRedirectTo: window.location.href },
+    });
+    if (error) {
+      renderLogin(`Erro: ${error.message}`);
+    } else {
+      renderLogin(`Link enviado pra ${email} — confere sua caixa de entrada (e o spam).`);
+    }
+  });
+}
+
+function renderLogout() {
+  const nav = document.getElementById("nav");
+  const btn = document.createElement("button");
+  btn.className = "nav-item logout";
+  btn.textContent = "Sair";
+  btn.addEventListener("click", async () => {
+    await sb.auth.signOut();
+    location.reload();
+  });
+  nav.appendChild(btn);
+}
+
+async function startApp() {
+  await loadState();
+  setSyncStatus(sb ? `sincronizado — ${currentUser.email}` : "só local (configure config.js pra sincronizar)");
+  render();
+  if (sb && currentUser) renderLogout();
+}
+
 // ---------- boot ----------
 async function boot() {
   try {
     await initSupabase();
-    await loadState();
-    setSyncStatus(sb ? "sincronizado" : "só local (configure config.js pra sincronizar)");
-    render();
+
+    if (!sb) {
+      // sem Supabase configurado: modo local, sem exigir login
+      await startApp();
+    } else {
+      const { data: { session } } = await sb.auth.getSession();
+      if (session && session.user) {
+        currentUser = { id: session.user.id, email: session.user.email };
+        await startApp();
+      } else {
+        setSyncStatus("não logada");
+        renderLogin();
+      }
+
+      sb.auth.onAuthStateChange((event, session) => {
+        if (event === "SIGNED_IN" && session && session.user) {
+          currentUser = { id: session.user.id, email: session.user.email };
+          startApp();
+        }
+        if (event === "SIGNED_OUT") {
+          currentUser = null;
+          location.reload();
+        }
+      });
+    }
   } catch (e) {
     console.error(e);
     document.getElementById("content").innerHTML =

@@ -1,25 +1,26 @@
--- Rode isso uma vez no SQL Editor do seu projeto Supabase (supabase.com).
--- Cria a única tabela que o Painel da Vida usa: um "estado" inteiro em JSON,
--- porque é um app de uma pessoa só (você) — não precisa de várias tabelas.
+-- ATENÇÃO: isso substitui a tabela antiga (sem login) por uma nova,
+-- com uma linha por USUÁRIO LOGADO (auth.uid()), não mais uma linha fixa
+-- chamada "sophia". Se você já tinha testado o app antes disso, os dados de
+-- teste antigos serão apagados — normal, é só isso mesmo, dado de teste.
+--
+-- Rode isso no SQL Editor do seu projeto Supabase.
 
-create table if not exists painel_estado (
-  id text primary key,
+drop table if exists painel_estado;
+
+create table painel_estado (
+  user_id uuid primary key references auth.users(id) on delete cascade default auth.uid(),
   data jsonb not null default '{}'::jsonb,
   updated_at timestamptz not null default now()
 );
 
--- Segurança: como o app usa a chave "anon" pública (fica visível no navegador),
--- habilitamos RLS e liberamos leitura/escrita só para a linha "sophia".
--- Isso não é um sistema multiusuário — é uma trava simples para não deixar
--- a tabela aberta por engano a qualquer linha.
+-- Cada pessoa logada só enxerga e só edita a PRÓPRIA linha.
+-- Isso é o que fecha o buraco de segurança: antes, qualquer um com o link
+-- conseguia ler/editar os dados, porque a trava não checava quem estava
+-- pedindo — só existia uma linha fixa. Agora, sem estar logada como você,
+-- ninguém acessa nada.
 alter table painel_estado enable row level security;
 
-create policy "acesso à própria linha" on painel_estado
+create policy "cada usuário só vê e edita a própria linha" on painel_estado
   for all
-  using (id = 'sophia')
-  with check (id = 'sophia');
-
--- Cria a linha inicial vazia (o app faz upsert nela a partir daí).
-insert into painel_estado (id, data)
-values ('sophia', '{}'::jsonb)
-on conflict (id) do nothing;
+  using (user_id = auth.uid())
+  with check (user_id = auth.uid());
